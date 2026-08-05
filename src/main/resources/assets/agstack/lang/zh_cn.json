@@ -25,6 +25,7 @@
   "category.agstack": "聚合堆叠",
   "key.agstack.expand_panel": "展开聚合槽面板",
   "agstack.config.blacklist": "黑名单管理",
-  "agstack.blacklist.title": "选择禁止聚合的物品"
+  "agstack.blacklist.title": "选择禁止聚合的物品",
+  "key.agstack.armor_switch": "装备切换"
 
 }

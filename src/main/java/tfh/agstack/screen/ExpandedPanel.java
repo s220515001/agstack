@@ -4,7 +4,6 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -44,7 +43,6 @@ public class ExpandedPanel {
 
     public static boolean onKeyPressed(HandledScreen<?> screen, int keyCode, int scanCode, int modifiers) {
         if (!panelOpen || currentHoveredSlot == null || hoveredButtonIndex == -1) return false;
-
         boolean isCtrlDown = (modifiers & 2) != 0;
         if (keyCode == 81) {
             discardSubItem(screen, hoveredButtonIndex, isCtrlDown);
@@ -56,18 +54,12 @@ public class ExpandedPanel {
     private static void discardSubItem(HandledScreen<?> screen, int subIndex, boolean wholeStack) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.player == null || client.getNetworkHandler() == null) return;
-
         AggregatedStackComponent comp = currentHoveredSlot.getStack().get(ModDataComponents.AGGREGATED_STACK);
         if (comp == null || subIndex >= comp.subItems().size()) return;
-
         int syncId = screen.getScreenHandler().syncId;
         int slotId = currentHoveredSlot.id;
         ClientPlayNetworking.send(new ExtractSubItemPayload(syncId, slotId, subIndex, 3, false));
-
-        panelOpen = false;
-        displayedSlot = null;
-        currentHoveredSlot = null;
-        hoveredButtonIndex = -1;
+        // 丢弃后也保持面板打开，但槽位可能变空，render 会检测并关闭
     }
 
     public static void render(DrawContext context, HandledScreen<?> screen, int mouseX, int mouseY) {
@@ -137,14 +129,37 @@ public class ExpandedPanel {
                 break;
         }
 
-        if (!shouldOpen || currentHoveredSlot == null) {
+        // 如果面板打开，但当前槽位已无效（比如槽位变空），自动关闭
+        if (panelOpen && currentHoveredSlot != null) {
+            ItemStack stack = currentHoveredSlot.getStack();
+            AggregatedStackComponent comp = stack.get(ModDataComponents.AGGREGATED_STACK);
+            if (stack.isEmpty() || comp == null || comp.isEmpty()) {
+                panelOpen = false;
+                currentHoveredSlot = null;
+                displayedSlot = null;
+                subItemButtons.clear();
+                hoveredButtonIndex = -1;
+                return;
+            }
+        }
+
+        if (!panelOpen || currentHoveredSlot == null) {
             subItemButtons.clear();
             hoveredButtonIndex = -1;
             return;
         }
 
-        AggregatedStackComponent comp = currentHoveredSlot.getStack().get(ModDataComponents.AGGREGATED_STACK);
-        if (comp == null || comp.isEmpty()) return;
+        // 重新获取组件，确保数据最新
+        ItemStack stack = currentHoveredSlot.getStack();
+        AggregatedStackComponent comp = stack.get(ModDataComponents.AGGREGATED_STACK);
+        if (comp == null || comp.isEmpty()) {
+            panelOpen = false;
+            currentHoveredSlot = null;
+            displayedSlot = null;
+            subItemButtons.clear();
+            hoveredButtonIndex = -1;
+            return;
+        }
 
         int panelWidth = getPanelWidth();
         int panelHeight = getPanelHeight(currentHoveredSlot);
@@ -205,21 +220,15 @@ public class ExpandedPanel {
             subItemButtons.add(new SubItemButton(itemX, itemY, slotWidth, slotHeight, i));
         }
 
-        // 使用原版工具提示系统
         if (hoveredButtonIndex != -1 && hoveredButtonIndex < comp.subItems().size()) {
             ItemStack hoveredStack = comp.subItems().get(hoveredButtonIndex);
             MinecraftClient client = MinecraftClient.getInstance();
             if (client.world != null) {
-                // 获取工具提示上下文
                 Item.TooltipContext tooltipContext = Item.TooltipContext.create(client.world);
-                // 获取工具提示类型（根据F3+H设置）
                 TooltipType tooltipType = client.options.advancedItemTooltips ? TooltipType.ADVANCED : TooltipType.BASIC;
-                // 获取原版完整工具提示
                 List<Text> tooltip = hoveredStack.getTooltip(tooltipContext, client.player, tooltipType);
-                // 使用DrawContext绘制工具提示
                 context.drawTooltip(textRenderer, tooltip, mouseX, mouseY);
             } else {
-                // 后备：简单的名称和数量（世界为 null 时）
                 List<Text> tooltip = new ArrayList<>();
                 tooltip.add(hoveredStack.getName().copy());
                 if (hoveredStack.getCount() > 1) {
@@ -243,56 +252,51 @@ public class ExpandedPanel {
 
     public static boolean onMouseClick(HandledScreen<?> screen, double mouseX, double mouseY, int button) {
         if (!panelOpen || currentHoveredSlot == null) return false;
+        if (button != 0) return false; // 只处理左键
+
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.player == null) return false;
+        ItemStack cursor = client.player.currentScreenHandler.getCursorStack();
+
+        ItemStack stack = currentHoveredSlot.getStack();
+        AggregatedStackComponent comp = stack.get(ModDataComponents.AGGREGATED_STACK);
+        if (comp == null || comp.isEmpty()) return false;
 
         int screenX = ((HandledScreenAccessor) screen).getX();
         int screenY = ((HandledScreenAccessor) screen).getY();
-
         int panelWidth = getPanelWidth();
         int panelHeight = getPanelHeight(currentHoveredSlot);
         int panelX = getPanelX(screenX, currentHoveredSlot, panelWidth);
         int panelY = getPanelY(screenY, currentHoveredSlot, panelHeight);
 
-        if (mouseX >= panelX - 2 && mouseX <= panelX + panelWidth + 2 &&
-                mouseY >= panelY - 2 && mouseY <= panelY + panelHeight + 2) {
+        if (mouseX < panelX - 2 || mouseX > panelX + panelWidth + 2 ||
+                mouseY < panelY - 2 || mouseY > panelY + panelHeight + 2) {
+            return false;
+        }
 
-            for (SubItemButton btn : subItemButtons) {
-                if (mouseX >= btn.x && mouseX <= btn.x + btn.width &&
-                        mouseY >= btn.y && mouseY <= btn.y + btn.height) {
+        for (SubItemButton btn : subItemButtons) {
+            if (mouseX >= btn.x && mouseX <= btn.x + btn.width &&
+                    mouseY >= btn.y && mouseY <= btn.y + btn.height) {
 
-                    MinecraftClient client = MinecraftClient.getInstance();
-                    if (client.player == null || client.getNetworkHandler() == null) return true;
-
-                    boolean isShiftDown = net.minecraft.client.util.InputUtil.isKeyPressed(
-                            client.getWindow().getHandle(),
-                            org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT
-                    ) || net.minecraft.client.util.InputUtil.isKeyPressed(
-                            client.getWindow().getHandle(),
-                            org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT_SHIFT
-                    );
-
-                    int syncId = screen.getScreenHandler().syncId;
-                    int slotId = currentHoveredSlot.id;
-
-                    if (isShiftDown && button == 0) {
-                        ClientPlayNetworking.send(new ExtractSubItemPayload(syncId, slotId, btn.index, 0, true));
-                    } else if (button == 0) {
-                        ClientPlayNetworking.send(new ExtractSubItemPayload(syncId, slotId, btn.index, 0, false));
-                    } else if (button == 1) {
-                        ClientPlayNetworking.send(new ExtractSubItemPayload(syncId, slotId, btn.index, 1, false));
-                    } else {
-                        return true;
-                    }
-
-                    panelOpen = false;
-                    displayedSlot = null;
-                    currentHoveredSlot = null;
-                    hoveredButtonIndex = -1;
+                // 前置校验：光标必须为空
+                if (!cursor.isEmpty()) {
+                    // 光标有物品，操作无效，面板保持打开
                     return true;
                 }
+
+                // 允许取出任意子物品（包括顶层）
+                if (client.getNetworkHandler() == null) return true;
+                int syncId = screen.getScreenHandler().syncId;
+                int slotId = currentHoveredSlot.id;
+                ClientPlayNetworking.send(new ExtractSubItemPayload(syncId, slotId, btn.index, 0, false));
+
+                // 不关闭面板，让 render 自动刷新显示
+                // 面板会在下一次渲染时更新
+                return true;
             }
-            return true;
         }
-        return false;
+
+        return true; // 点击面板空白，阻止原版操作
     }
 
     private static int getPanelX(int screenX, Slot slot, int panelWidth) {

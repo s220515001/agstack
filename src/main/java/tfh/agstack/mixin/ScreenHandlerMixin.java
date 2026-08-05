@@ -15,6 +15,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import tfh.agstack.component.AggregatedStackComponent;
 import tfh.agstack.component.ModDataComponents;
 import tfh.agstack.config.ModConfig;
+import tfh.agstack.util.AggregationHelper;
 import tfh.agstack.util.DropFlag;
 
 import java.util.ArrayList;
@@ -67,9 +68,6 @@ public abstract class ScreenHandlerMixin {
         ScreenHandler handler = (ScreenHandler) (Object) this;
         ModConfig config = ModConfig.get();
 
-        // ------------------------------------------------------------
-        // 1. 拖拽聚合槽到背包外（整组丢出）
-        // ------------------------------------------------------------
         if (slotIndex == -1 && actionType == SlotActionType.PICKUP && button == 0) {
             ItemStack cursor = getCursorStack();
             if (!cursor.isEmpty()) {
@@ -98,9 +96,6 @@ public abstract class ScreenHandlerMixin {
         boolean isPlayerInventory = slot.inventory instanceof PlayerInventory;
         boolean allowed = isAllowedContainer(handler);
 
-        // ------------------------------------------------------------
-        // 2. Ctrl+Q 整组丢弃（THROW 操作且槽位是聚合槽）
-        // ------------------------------------------------------------
         if (actionType == SlotActionType.THROW && slotComp != null) {
             DropFlag.setSkipDropProcessing(true);
             try {
@@ -113,9 +108,6 @@ public abstract class ScreenHandlerMixin {
             return;
         }
 
-        // ------------------------------------------------------------
-        // 3. 原 Shift+左键拆分逻辑（从聚合槽中拆出一个主物品）
-        // ------------------------------------------------------------
         if (actionType == SlotActionType.QUICK_MOVE) {
             if (justSplitAggregated && slotIndex == lastSplitSlot) {
                 justSplitAggregated = false;
@@ -133,20 +125,15 @@ public abstract class ScreenHandlerMixin {
             return;
         }
 
-        // ------------------------------------------------------------
-        // 4. 双击合并（PICKUP_ALL）
-        // ------------------------------------------------------------
         if (actionType == SlotActionType.PICKUP_ALL && button == 0 && !slotStack.isEmpty()) {
             handlePickupAll(slotIndex, player, handler);
             ci.cancel();
             return;
         }
 
-        // ------------------------------------------------------------
-        // 5. 光标持有聚合槽点击空格子
-        // ------------------------------------------------------------
         if (slotComp == null && slotStack.isEmpty() && !cursor.isEmpty()) {
             if (cursorComp != null) {
+                // 放置聚合槽到空格，直接复制，Item 类型正确（因为 cursor 本身就是正确的）
                 slot.setStack(cursor.copy());
                 setCursorStack(ItemStack.EMPTY);
                 ci.cancel();
@@ -154,9 +141,6 @@ public abstract class ScreenHandlerMixin {
             }
         }
 
-        // ------------------------------------------------------------
-        // 6. 禁止容器过滤
-        // ------------------------------------------------------------
         if (!allowed && !isPlayerInventory) {
             if (cursorComp != null) {
                 ci.cancel();
@@ -168,11 +152,9 @@ public abstract class ScreenHandlerMixin {
             }
         }
 
-        // ------------------------------------------------------------
-        // 7. 拖拽创建聚合槽（两个普通物品）
-        // ------------------------------------------------------------
+        // 拖拽创建聚合槽（两个普通物品）
         if (slotComp == null && !slotStack.isEmpty() && !cursor.isEmpty() &&
-                cursor.getItem() == slotStack.getItem() &&
+                AggregationHelper.canAggregate(cursor, slotStack) &&
                 cursorComp == null &&
                 actionType == SlotActionType.PICKUP && button == 0) {
 
@@ -188,16 +170,12 @@ public abstract class ScreenHandlerMixin {
             return;
         }
 
-        // ------------------------------------------------------------
-        // 8. 聚合槽相关交互
-        // ------------------------------------------------------------
         if (slotComp != null) {
 
-            // 左键点击聚合槽
             if (actionType == SlotActionType.PICKUP && button == 0) {
 
                 // 合并两个聚合槽
-                if (cursorComp != null && cursor.getItem() == slotStack.getItem()) {
+                if (cursorComp != null && AggregationHelper.canAggregate(cursor, slotStack)) {
                     if (containsBlacklisted(cursorComp)) {
                         ci.cancel();
                         return;
@@ -207,7 +185,6 @@ public abstract class ScreenHandlerMixin {
                     return;
                 }
 
-                // 拿起整个聚合槽
                 if (cursor.isEmpty()) {
                     setCursorStack(slotStack.copy());
                     slot.setStack(ItemStack.EMPTY);
@@ -216,11 +193,10 @@ public abstract class ScreenHandlerMixin {
                 }
 
                 // Shift+左键将光标上的普通物品添加到聚合槽
-                if (player.isSneaking() && cursorComp == null && cursor.getItem() == slotStack.getItem()) {
+                if (player.isSneaking() && cursorComp == null && AggregationHelper.canAggregate(cursor, slotStack)) {
                     if (slotComp.getSubItemCount() < config.maxSubItems && !config.isBlacklisted(cursor)) {
                         AggregatedStackComponent newComp = slotComp.addSubItem(cursor.copy());
-                        ItemStack newSlotStack = createAggregatedStack(slotStack.getItem(), newComp);
-                        newComp.applyToItemStack(newSlotStack);
+                        ItemStack newSlotStack = AggregatedStackComponent.createAggregatedStack(newComp);
                         slot.setStack(newSlotStack);
                         setCursorStack(ItemStack.EMPTY);
                     }
@@ -228,15 +204,20 @@ public abstract class ScreenHandlerMixin {
                     return;
                 }
 
-                // 普通交换
+                // 普通交换：如果光标是普通物品，允许交换，但需保证外层 Item 正确
                 ItemStack temp = slotStack.copy();
-                slot.setStack(cursor.copy());
+                if (cursorComp != null) {
+                    // 光标是聚合槽，直接放入
+                    slot.setStack(cursor.copy());
+                } else {
+                    // 光标是普通物品，直接放入（但普通物品不能放入聚合槽，原版行为？我们允许交换）
+                    slot.setStack(cursor.copy());
+                }
                 setCursorStack(temp);
                 ci.cancel();
                 return;
             }
 
-            // 右键点击聚合槽（分半操作）
             if (actionType == SlotActionType.PICKUP && button == 1) {
                 handleRightClick(slot, slotStack, slotComp, cursor);
                 ci.cancel();
@@ -245,7 +226,7 @@ public abstract class ScreenHandlerMixin {
         }
     }
 
-    // ==================== 辅助方法（原模组已有，未修改） ====================
+    // ==================== 辅助方法 ====================
 
     @Unique
     private boolean containsBlacklisted(AggregatedStackComponent comp) {
@@ -263,12 +244,10 @@ public abstract class ScreenHandlerMixin {
         ItemStack clickedStack = clickedSlot.getStack();
         if (clickedStack.isEmpty()) return;
 
-        net.minecraft.item.Item targetItem = clickedStack.getItem();
-
         List<Slot> matchingSlots = new ArrayList<>();
         for (Slot slot : handler.slots) {
             ItemStack stack = slot.getStack();
-            if (!stack.isEmpty() && stack.getItem() == targetItem && !config.isBlacklisted(stack)) {
+            if (!stack.isEmpty() && AggregationHelper.canAggregate(stack, clickedStack) && !config.isBlacklisted(stack)) {
                 matchingSlots.add(slot);
             }
         }
@@ -308,9 +287,7 @@ public abstract class ScreenHandlerMixin {
 
         int fillIndex = 0;
         for (AggregatedStackComponent agg : aggregates) {
-            ItemStack finalStack = new ItemStack(targetItem);
-            finalStack.set(ModDataComponents.AGGREGATED_STACK, agg);
-            agg.applyToItemStack(finalStack);
+            ItemStack finalStack = AggregatedStackComponent.createAggregatedStack(agg);
             if (fillIndex < slotsToFill.size()) {
                 slotsToFill.get(fillIndex).setStack(finalStack);
                 fillIndex++;
@@ -331,9 +308,9 @@ public abstract class ScreenHandlerMixin {
         int available = maxItems - currentCount;
 
         if (available <= 0) {
-            ItemStack temp = slotStack.copy();
+            // 交换两个聚合槽
             slot.setStack(cursorStack.copy());
-            setCursorStack(temp);
+            setCursorStack(slotStack.copy());
             return;
         }
 
@@ -348,12 +325,12 @@ public abstract class ScreenHandlerMixin {
             added++;
         }
 
+        // 目标聚合槽的主索引保持不变
         AggregatedStackComponent newTargetComp = new AggregatedStackComponent(
                 newTargetItems,
                 targetComp.primaryIndex()
         );
-        ItemStack newSlotStack = createAggregatedStack(slotStack.getItem(), newTargetComp);
-        newTargetComp.applyToItemStack(newSlotStack);
+        ItemStack newSlotStack = AggregatedStackComponent.createAggregatedStack(newTargetComp);
         slot.setStack(newSlotStack);
 
         if (added >= sourceItems.size()) {
@@ -362,14 +339,11 @@ public abstract class ScreenHandlerMixin {
             List<ItemStack> remaining = sourceItems.subList(added, sourceItems.size());
             int newPrimary = sourceComp.primaryIndex() - added;
             if (newPrimary < 0) newPrimary = 0;
-
             AggregatedStackComponent newSourceComp = new AggregatedStackComponent(
                     new ArrayList<>(remaining),
                     newPrimary
             );
-            ItemStack newCursor = cursorStack.copy();
-            newCursor.set(ModDataComponents.AGGREGATED_STACK, newSourceComp);
-            newSourceComp.applyToItemStack(newCursor);
+            ItemStack newCursor = AggregatedStackComponent.createAggregatedStack(newSourceComp);
             setCursorStack(newCursor);
         }
     }
@@ -384,8 +358,7 @@ public abstract class ScreenHandlerMixin {
             splitItem.remove(ModDataComponents.AGGREGATED_STACK);
             primary.setCount(primary.getCount() - 1);
             AggregatedStackComponent newComp = comp.withUpdatedPrimary(primary);
-            ItemStack newSlotStack = createAggregatedStack(primary.getItem(), newComp);
-            newComp.applyToItemStack(newSlotStack);
+            ItemStack newSlotStack = AggregatedStackComponent.createAggregatedStack(newComp);
             slot.setStack(newSlotStack);
         } else {
             splitItem = primary.copy();
@@ -394,8 +367,7 @@ public abstract class ScreenHandlerMixin {
             if (newComp == null || newComp.subItems().isEmpty()) {
                 slot.setStack(ItemStack.EMPTY);
             } else {
-                ItemStack newSlotStack = createAggregatedStack(primary.getItem(), newComp);
-                newComp.applyToItemStack(newSlotStack);
+                ItemStack newSlotStack = AggregatedStackComponent.createAggregatedStack(newComp);
                 slot.setStack(newSlotStack);
             }
         }
@@ -416,8 +388,7 @@ public abstract class ScreenHandlerMixin {
     private void createAggregatedFromTwoStacks(Slot slot, ItemStack slotStack, ItemStack cursorStack) {
         AggregatedStackComponent newComp = new AggregatedStackComponent(
                 List.of(cursorStack.copy(), slotStack.copy()), 0);
-        ItemStack aggregated = createAggregatedStack(slotStack.getItem(), newComp);
-        newComp.applyToItemStack(aggregated);
+        ItemStack aggregated = AggregatedStackComponent.createAggregatedStack(newComp);
         slot.setStack(aggregated);
         setCursorStack(ItemStack.EMPTY);
     }
@@ -439,14 +410,12 @@ public abstract class ScreenHandlerMixin {
                     if (newComp == null || newComp.subItems().isEmpty()) {
                         slot.setStack(ItemStack.EMPTY);
                     } else {
-                        ItemStack newSlotStack = createAggregatedStack(slotStack.getItem(), newComp);
-                        newComp.applyToItemStack(newSlotStack);
+                        ItemStack newSlotStack = AggregatedStackComponent.createAggregatedStack(newComp);
                         slot.setStack(newSlotStack);
                     }
                 } else {
                     AggregatedStackComponent newComp = comp.withUpdatedPrimary(primary);
-                    ItemStack newSlotStack = createAggregatedStack(slotStack.getItem(), newComp);
-                    newComp.applyToItemStack(newSlotStack);
+                    ItemStack newSlotStack = AggregatedStackComponent.createAggregatedStack(newComp);
                     slot.setStack(newSlotStack);
                 }
             } else {
@@ -455,21 +424,19 @@ public abstract class ScreenHandlerMixin {
                 if (newComp == null || newComp.subItems().isEmpty()) {
                     slot.setStack(ItemStack.EMPTY);
                 } else {
-                    ItemStack newSlotStack = createAggregatedStack(slotStack.getItem(), newComp);
-                    newComp.applyToItemStack(newSlotStack);
+                    ItemStack newSlotStack = AggregatedStackComponent.createAggregatedStack(newComp);
                     slot.setStack(newSlotStack);
                 }
             }
         } else {
-            if (cursorStack.getItem() == slotStack.getItem() &&
+            if (AggregationHelper.canAggregate(cursorStack, slotStack) &&
                     cursorStack.get(ModDataComponents.AGGREGATED_STACK) == null &&
                     !config.isBlacklisted(cursorStack)) {
                 if (comp.getSubItemCount() < config.maxSubItems) {
                     ItemStack toAdd = cursorStack.copy();
                     toAdd.setCount(1);
                     AggregatedStackComponent newComp = comp.addSubItem(toAdd);
-                    ItemStack newSlotStack = createAggregatedStack(slotStack.getItem(), newComp);
-                    newComp.applyToItemStack(newSlotStack);
+                    ItemStack newSlotStack = AggregatedStackComponent.createAggregatedStack(newComp);
                     slot.setStack(newSlotStack);
                     cursorStack.decrement(1);
                     if (cursorStack.isEmpty()) {
@@ -480,13 +447,5 @@ public abstract class ScreenHandlerMixin {
                 }
             }
         }
-    }
-
-    @Unique
-    private ItemStack createAggregatedStack(net.minecraft.item.Item item,
-                                            AggregatedStackComponent comp) {
-        ItemStack stack = new ItemStack(item);
-        stack.set(ModDataComponents.AGGREGATED_STACK, comp);
-        return stack;
     }
 }

@@ -20,9 +20,9 @@ public class CyclePrimaryHandler implements ServerPlayNetworking.PlayPayloadHand
 
         if (newIndex != comp.primaryIndex()) {
             AggregatedStackComponent newComp = comp.withNewPrimary(newIndex);
-            mainHand.set(ModDataComponents.AGGREGATED_STACK, newComp);
-            // 同步新主物品的组件（药水效果、炖菜效果等）
-            newComp.applyToItemStack(mainHand);
+            // 重新创建外层 ItemStack，Item 类型与主物品一致
+            ItemStack newMainHand = AggregatedStackComponent.createAggregatedStack(newComp);
+            player.getInventory().main.set(player.getInventory().selectedSlot, newMainHand);
             player.currentScreenHandler.sendContentUpdates();
         }
     }

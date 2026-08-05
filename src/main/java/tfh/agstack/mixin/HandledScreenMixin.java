@@ -1,10 +1,13 @@
 package tfh.agstack.mixin;
 
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.item.ItemStack;
 import net.minecraft.screen.slot.Slot;
+import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -14,6 +17,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import tfh.agstack.component.AggregatedStackComponent;
 import tfh.agstack.component.ModDataComponents;
+import tfh.agstack.config.ModConfig;
+import tfh.agstack.network.TrashDeletePayload;
+import tfh.agstack.network.TrashUndoPayload;
 import tfh.agstack.screen.ExpandedPanel;
 
 @Mixin(HandledScreen.class)
@@ -21,6 +27,7 @@ public abstract class HandledScreenMixin {
 
     @Shadow protected int x;
     @Shadow protected int y;
+
     @Shadow public abstract Slot getSlotAt(double x, double y);
 
     @Unique
@@ -79,13 +86,38 @@ public abstract class HandledScreenMixin {
 
     @Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
     private void onMouseClicked(double mouseX, double mouseY, int button, CallbackInfoReturnable<Boolean> cir) {
+        // 1. 先让 ExpandedPanel 处理
         if (ExpandedPanel.onMouseClick(getScreen(), mouseX, mouseY, button)) {
             cir.setReturnValue(true);
             cir.cancel();
             return;
         }
 
+        ModConfig config = ModConfig.get();
+        HandledScreen<?> screen = getScreen();
         MinecraftClient client = MinecraftClient.getInstance();
+
+        // 2. 检测 Delete 键是否按住（用于垃圾桶删除）
+        boolean deleteDown = GLFW.glfwGetKey(client.getWindow().getHandle(), GLFW.GLFW_KEY_DELETE) == GLFW.GLFW_PRESS;
+        if (config.trashEnabled && deleteDown && button == 0) { // 左键
+            // 检查光标是否为空
+            if (!screen.getScreenHandler().getCursorStack().isEmpty()) {
+                return; // 光标有物品，忽略
+            }
+
+            Slot clickedSlot = getSlotAt(mouseX, mouseY);
+            if (clickedSlot != null && !clickedSlot.getStack().isEmpty()) {
+                ClientPlayNetworking.send(new TrashDeletePayload(
+                        screen.getScreenHandler().syncId,
+                        clickedSlot.id
+                ));
+                cir.setReturnValue(true);
+                cir.cancel();
+                return;
+            }
+        }
+
+        // 3. 原有光标拦截逻辑（聚合槽拖拽拦截）
         if (client.player == null) return;
         ItemStack cursor = client.player.currentScreenHandler.getCursorStack();
         if (cursor.isEmpty()) return;
@@ -101,7 +133,22 @@ public abstract class HandledScreenMixin {
 
     @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
     private void onKeyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
+        // 先让 ExpandedPanel 处理（如 Q 键丢弃子物品）
         if (ExpandedPanel.onKeyPressed(getScreen(), keyCode, scanCode, modifiers)) {
+            cir.setReturnValue(true);
+            cir.cancel();
+            return;
+        }
+
+        ModConfig config = ModConfig.get();
+        if (!config.trashEnabled) return;
+
+        HandledScreen<?> screen = getScreen();
+
+        // 检测 Backspace（撤销，不按 Shift）
+        boolean shiftDown = Screen.hasShiftDown();
+        if (!shiftDown && keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+            ClientPlayNetworking.send(new TrashUndoPayload(screen.getScreenHandler().syncId));
             cir.setReturnValue(true);
             cir.cancel();
         }

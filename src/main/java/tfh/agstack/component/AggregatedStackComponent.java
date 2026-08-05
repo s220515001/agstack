@@ -118,8 +118,9 @@ public record AggregatedStackComponent(List<ItemStack> subItems, int primaryInde
     }
 
     /**
-     * 将主物品的所有组件（药水效果、炖菜效果、附魔等）复制到外层聚合栈，
+     * 将主物品的所有组件（药水效果、附魔等）复制到外层聚合栈，
      * 但保留聚合栈自己的 AGGREGATED_STACK 组件。
+     * 注意：此方法不会改变外层 ItemStack 的 Item 类型。
      */
     public void applyToItemStack(ItemStack outer) {
         if (subItems.isEmpty()) return;
@@ -132,5 +133,17 @@ public record AggregatedStackComponent(List<ItemStack> subItems, int primaryInde
         if (selfComp != null) {
             outer.set(ModDataComponents.AGGREGATED_STACK, selfComp);
         }
+    }
+
+    /**
+     * 根据聚合组件创建一个新的外层 ItemStack，其 Item 类型与主物品一致。
+     */
+    public static ItemStack createAggregatedStack(AggregatedStackComponent comp) {
+        if (comp == null || comp.isEmpty()) return ItemStack.EMPTY;
+        ItemStack primary = comp.getPrimary();
+        ItemStack stack = new ItemStack(primary.getItem());
+        stack.set(ModDataComponents.AGGREGATED_STACK, comp);
+        comp.applyToItemStack(stack);
+        return stack;
     }
 }

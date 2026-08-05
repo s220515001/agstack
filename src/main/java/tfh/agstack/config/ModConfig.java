@@ -28,6 +28,13 @@ public class ModConfig {
     public boolean creativeAutoStack = false;
     public String splitKey = "key.keyboard.left.ctrl";
     public String configKey = "key.keyboard.p";
+    public boolean allowWeaponDifferentMaterial = false;
+    public boolean allowArmorDifferentMaterial = false;
+
+    // 垃圾桶配置
+    public boolean trashEnabled = true;
+    public int trashRetentionSeconds = 30;
+
     public Set<String> blacklistedItems = new HashSet<>();
 
     public enum ExpandBehavior { HOLD, TOGGLE, CLICK_OUTSIDE }
@@ -50,6 +57,11 @@ public class ModConfig {
                 for (String id : value.blacklistedItems) {
                     buf.writeString(id);
                 }
+                buf.writeBoolean(value.allowWeaponDifferentMaterial);
+                buf.writeBoolean(value.allowArmorDifferentMaterial);
+                // 垃圾桶
+                buf.writeBoolean(value.trashEnabled);
+                buf.writeInt(value.trashRetentionSeconds);
             }, buf -> {
                 ModConfig config = new ModConfig();
                 config.enabled = buf.readBoolean();
@@ -68,6 +80,11 @@ public class ModConfig {
                     blacklist.add(buf.readString());
                 }
                 config.blacklistedItems = blacklist;
+                config.allowWeaponDifferentMaterial = buf.readBoolean();
+                config.allowArmorDifferentMaterial = buf.readBoolean();
+                // 垃圾桶
+                config.trashEnabled = buf.readBoolean();
+                config.trashRetentionSeconds = buf.readInt();
                 return config;
             });
 
@@ -103,14 +120,12 @@ public class ModConfig {
         save();
     }
 
-    // 基于完整 ItemStack 的黑名单（包含组件签名，区分药水效果等）
     public boolean isBlacklisted(ItemStack stack) {
         if (stack.isEmpty()) return false;
         String key = getBlacklistKey(stack);
         return blacklistedItems.contains(key);
     }
 
-    // 兼容旧方法（仅物品ID）
     public boolean isBlacklisted(Item item) {
         return blacklistedItems.contains(Registries.ITEM.getId(item).toString());
     }
@@ -131,17 +146,14 @@ public class ModConfig {
         if (components.isEmpty()) return "";
 
         StringBuilder sig = new StringBuilder();
-        // 药水效果 (POTION_CONTENTS)
         var potionContents = components.get(DataComponentTypes.POTION_CONTENTS);
         if (potionContents != null) {
             sig.append("potion:").append(potionContents.toString()).append(";");
         }
-        // 附魔 (ENCHANTMENTS) - 注意：附魔书不细分，但此处仍会记录附魔，如果希望附魔书细分可保留
         var enchantments = components.get(DataComponentTypes.ENCHANTMENTS);
         if (enchantments != null) {
             sig.append("ench:").append(enchantments.toString()).append(";");
         }
-        // 自定义名称
         var customName = components.get(DataComponentTypes.CUSTOM_NAME);
         if (customName != null) {
             sig.append("name:").append(customName.getString()).append(";");

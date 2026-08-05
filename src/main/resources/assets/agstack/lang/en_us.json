@@ -24,5 +24,6 @@
   "key.agstack.open_config": "Open Aggregated Stack Config",
   "category.agstack": "Aggregated Stack",
   "agstack.config.blacklist": "Blacklist Manager",
-  "agstack.blacklist.title": "Select Items to Exclude from Stacking"
+  "agstack.blacklist.title": "Select Items to Exclude from Stacking",
+  "key.agstack.armor_switch": "Armor Switch"
 }

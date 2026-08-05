@@ -13,12 +13,17 @@ import tfh.agstack.screen.ExpandedPanel;
 
 public class AgstackClient implements ClientModInitializer {
     private static KeyBinding configKeyBinding;
+    private static KeyBinding armorSwitchKeyBinding;  // 新增
+
+    public static int getArmorSwitchKeyCode() {
+        if (armorSwitchKeyBinding == null) return GLFW.GLFW_KEY_TAB;
+        return armorSwitchKeyBinding.getDefaultKey().getCode(); // 或者 getKeyCode()
+    }
 
     @Override
     public void onInitializeClient() {
         System.out.println("[agstack] AgstackClient initializing...");
 
-        // 注册配置界面快捷键
         configKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key.agstack.open_config",
                 InputUtil.Type.KEYSYM,
@@ -26,8 +31,16 @@ public class AgstackClient implements ClientModInitializer {
                 "category.agstack"
         ));
 
+        // 新增：装备栏快速切换绑定，默认 Tab
+        armorSwitchKeyBinding = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key.agstack.armor_switch",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_TAB,
+                "category.agstack"
+        ));
+
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            // 检查配置按键
+            // 配置按键
             if (configKeyBinding.wasPressed()) {
                 System.out.println("[agstack] Config key pressed");
                 if (client.currentScreen == null) {
@@ -35,7 +48,7 @@ public class AgstackClient implements ClientModInitializer {
                 }
             }
 
-            // 检查展开按键（用于HOLD模式）
+            // 展开面板按键（HOLD模式）
             if (client.player != null && client.currentScreen != null) {
                 ModConfig config = ModConfig.get();
                 if (config.expandBehavior == ModConfig.ExpandBehavior.HOLD) {
@@ -48,6 +61,7 @@ public class AgstackClient implements ClientModInitializer {
         System.out.println("[agstack] AgstackClient initialized");
     }
 
+    // 原有的 isKeyPressed 和 getKeyCodeFromTranslation 保持不变
     private boolean isKeyPressed(String keyTranslation) {
         int keyCode = getKeyCodeFromTranslation(keyTranslation);
         if (keyCode == -1) return false;
