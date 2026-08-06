@@ -1,15 +1,19 @@
 package tfh.agstack;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tfh.agstack.command.RulesReloadCommand;
 import tfh.agstack.component.ModDataComponents;
 import tfh.agstack.config.ModConfig;
 import tfh.agstack.network.*;
+import tfh.agstack.rule.RuleManager;
 import tfh.agstack.trash.TrashManager;
 
 public class Agstack implements ModInitializer {
@@ -41,6 +45,23 @@ public class Agstack implements ModInitializer {
 		ServerPlayNetworking.registerGlobalReceiver(TrashDeletePayload.ID, new TrashDeleteHandler());
 		PayloadTypeRegistry.playC2S().register(TrashUndoPayload.ID, TrashUndoPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(TrashUndoPayload.ID, new TrashUndoHandler());
+
+		// 注册规则管理（启动时从配置目录加载）
+		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
+			RuleManager.getInstance().setServer(server);
+			try {
+				// 从配置目录加载规则（无需传入 ResourceManager）
+				RuleManager.getInstance().load();
+				LOGGER.info("Stack rules loaded from config directory");
+			} catch (Exception e) {
+				LOGGER.error("Failed to load stack rules", e);
+			}
+		});
+
+		// 注册命令
+		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {
+			RulesReloadCommand.register(dispatcher);
+		});
 
 		// 注册服务端 tick 事件，用于超时清理
 		ServerTickEvents.END_SERVER_TICK.register(server -> TrashManager.tickRecords());

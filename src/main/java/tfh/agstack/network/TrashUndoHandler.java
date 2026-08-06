@@ -9,6 +9,8 @@ import tfh.agstack.config.ModConfig;
 import tfh.agstack.trash.TrashManager;
 import tfh.agstack.trash.TrashRecord;
 
+import java.util.List;
+
 public class TrashUndoHandler implements ServerPlayNetworking.PlayPayloadHandler<TrashUndoPayload> {
     @Override
     public void receive(TrashUndoPayload payload, ServerPlayNetworking.Context context) {
@@ -16,51 +18,47 @@ public class TrashUndoHandler implements ServerPlayNetworking.PlayPayloadHandler
         ModConfig config = ModConfig.get();
         if (!config.trashEnabled) return;
 
-        TrashRecord record = TrashManager.getRecord(player.getUuid());
-        if (record == null) return;
-
-        // 检查是否超时
-        if (record.isExpired(System.currentTimeMillis(), config.trashRetentionSeconds)) {
-            TrashManager.clearRecord(player.getUuid());
-            return;
-        }
+        List<TrashRecord> batch = TrashManager.popLastBatch(player.getUuid());
+        if (batch.isEmpty()) return;
 
         ScreenHandler handler = player.currentScreenHandler;
-        ItemStack itemToRestore = record.getItem();
 
-        // 尝试恢复原槽位
-        boolean restored = false;
-        if (handler.syncId == record.getSyncId()) {
-            // 检查槽位是否有效
-            int idx = record.getSlotIndex();
-            if (idx >= 0 && idx < handler.slots.size()) {
-                Slot slot = handler.getSlot(idx);
-                if (slot != null && slot.getStack().isEmpty()) {
-                    slot.setStack(itemToRestore);
-                    restored = true;
+        for (TrashRecord record : batch) {
+            // 检查是否超时（虽然批次整体超时会在tick中被清理，但以防万一）
+            if (record.isExpired(System.currentTimeMillis(), config.trashRetentionSeconds)) continue;
+
+            ItemStack itemToRestore = record.getItem();
+            boolean restored = false;
+
+            // 尝试恢复原槽位（如果屏幕未变且槽位为空）
+            if (handler.syncId == record.getSyncId()) {
+                int idx = record.getSlotIndex();
+                if (idx >= 0 && idx < handler.slots.size()) {
+                    Slot slot = handler.getSlot(idx);
+                    if (slot != null && slot.getStack().isEmpty()) {
+                        slot.setStack(itemToRestore);
+                        restored = true;
+                    }
                 }
+            }
+
+            // 若原槽位不可用，寻找任意空位
+            if (!restored) {
+                for (Slot slot : handler.slots) {
+                    if (slot.getStack().isEmpty()) {
+                        slot.setStack(itemToRestore);
+                        restored = true;
+                        break;
+                    }
+                }
+            }
+
+            // 如果容器已满，丢到玩家脚下
+            if (!restored) {
+                player.dropItem(itemToRestore, false);
             }
         }
 
-        // 若原槽位不可用（被占用或容器已关闭），寻找空位或丢出
-        if (!restored) {
-            // 先搜索当前容器（ScreenHandler）的所有槽位（包括玩家背包）
-            for (Slot slot : handler.slots) {
-                if (slot.getStack().isEmpty()) {
-                    slot.setStack(itemToRestore);
-                    restored = true;
-                    break;
-                }
-            }
-        }
-
-        if (!restored) {
-            // 容器全满，丢到玩家脚下
-            player.dropItem(itemToRestore, false);
-        }
-
-        // 清除记录（无论是否成功恢复，记录已使用）
-        TrashManager.clearRecord(player.getUuid());
         handler.sendContentUpdates();
     }
 }

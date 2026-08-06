@@ -35,6 +35,13 @@ public abstract class HandledScreenMixin {
         return (HandledScreen<?>) (Object) this;
     }
 
+    // 拖拽删除状态
+    @Unique private boolean deleteKeyDown = false;
+    @Unique private boolean deleteDragging = false;
+    @Unique private int lastDeletedSlotId = -1;
+
+    // ==================== 渲染（聚合槽显示） ====================
+
     @Inject(method = "drawSlot", at = @At("HEAD"), cancellable = true)
     private void renderAggregatedSlot(DrawContext context, Slot slot, CallbackInfo ci) {
         ItemStack stack = slot.getStack();
@@ -79,14 +86,63 @@ public abstract class HandledScreenMixin {
         }
     }
 
+    // ==================== 渲染循环（检测拖拽删除 + Delete 键释放） ====================
+
     @Inject(method = "render", at = @At("TAIL"))
     private void onRender(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+        // 渲染聚合扩展面板
         ExpandedPanel.render(context, getScreen(), mouseX, mouseY);
+
+        // 检测 Delete 键释放（在渲染循环中处理）
+        if (deleteKeyDown) {
+            long handle = MinecraftClient.getInstance().getWindow().getHandle();
+            if (GLFW.glfwGetKey(handle, GLFW.GLFW_KEY_DELETE) == GLFW.GLFW_RELEASE) {
+                deleteKeyDown = false;
+                deleteDragging = false;
+                lastDeletedSlotId = -1;
+            }
+        }
+
+        // 拖拽删除：Delete 键按住且左键按下时，检测鼠标下槽位并删除
+        if (deleteKeyDown && ModConfig.get().trashEnabled) {
+            long handle = MinecraftClient.getInstance().getWindow().getHandle();
+            boolean leftDown = GLFW.glfwGetMouseButton(handle, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+            if (leftDown) {
+                handleTrashDrag(mouseX, mouseY);
+            } else {
+                // 左键释放，重置拖拽状态
+                deleteDragging = false;
+                lastDeletedSlotId = -1;
+            }
+        } else {
+            deleteDragging = false;
+            lastDeletedSlotId = -1;
+        }
     }
+
+    @Unique
+    private void handleTrashDrag(int mouseX, int mouseY) {
+        HandledScreen<?> screen = getScreen();
+        ModConfig config = ModConfig.get();
+        if (!config.trashEnabled) return;
+        if (!screen.getScreenHandler().getCursorStack().isEmpty()) return;
+
+        Slot slot = getSlotAt(mouseX, mouseY);
+        if (slot == null) return;
+        if (slot.id == lastDeletedSlotId) return; // 防止重复删除同一槽位
+        if (slot.getStack().isEmpty()) return;
+
+        // 发送删除包
+        ClientPlayNetworking.send(new TrashDeletePayload(screen.getScreenHandler().syncId, slot.id));
+        lastDeletedSlotId = slot.id;
+        deleteDragging = true;
+    }
+
+    // ==================== 鼠标点击（保留原有点击删除+其他逻辑） ====================
 
     @Inject(method = "mouseClicked", at = @At("HEAD"), cancellable = true)
     private void onMouseClicked(double mouseX, double mouseY, int button, CallbackInfoReturnable<Boolean> cir) {
-        // 1. 先让 ExpandedPanel 处理
+        // 1. ExpandedPanel 处理（选择子物品）
         if (ExpandedPanel.onMouseClick(getScreen(), mouseX, mouseY, button)) {
             cir.setReturnValue(true);
             cir.cancel();
@@ -97,31 +153,25 @@ public abstract class HandledScreenMixin {
         HandledScreen<?> screen = getScreen();
         MinecraftClient client = MinecraftClient.getInstance();
 
-        // 2. 检测 Delete 键是否按住（用于垃圾桶删除）
+        // 2. 原有点击删除（保留，作为备用）
         boolean deleteDown = GLFW.glfwGetKey(client.getWindow().getHandle(), GLFW.GLFW_KEY_DELETE) == GLFW.GLFW_PRESS;
-        if (config.trashEnabled && deleteDown && button == 0) { // 左键
-            // 检查光标是否为空
+        if (config.trashEnabled && deleteDown && button == 0) {
             if (!screen.getScreenHandler().getCursorStack().isEmpty()) {
-                return; // 光标有物品，忽略
+                return;
             }
-
             Slot clickedSlot = getSlotAt(mouseX, mouseY);
             if (clickedSlot != null && !clickedSlot.getStack().isEmpty()) {
-                ClientPlayNetworking.send(new TrashDeletePayload(
-                        screen.getScreenHandler().syncId,
-                        clickedSlot.id
-                ));
+                ClientPlayNetworking.send(new TrashDeletePayload(screen.getScreenHandler().syncId, clickedSlot.id));
                 cir.setReturnValue(true);
                 cir.cancel();
                 return;
             }
         }
 
-        // 3. 原有光标拦截逻辑（聚合槽拖拽拦截）
+        // 3. 聚合槽拖拽拦截（原有逻辑）
         if (client.player == null) return;
         ItemStack cursor = client.player.currentScreenHandler.getCursorStack();
         if (cursor.isEmpty()) return;
-
         if (cursor.get(ModDataComponents.AGGREGATED_STACK) != null) {
             Slot slot = getSlotAt(mouseX, mouseY);
             if (slot == null) {
@@ -131,9 +181,11 @@ public abstract class HandledScreenMixin {
         }
     }
 
+    // ==================== 键盘事件 ====================
+
     @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
     private void onKeyPressed(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
-        // 先让 ExpandedPanel 处理（如 Q 键丢弃子物品）
+        // ExpandedPanel 处理（如 Q 键丢弃子物品）
         if (ExpandedPanel.onKeyPressed(getScreen(), keyCode, scanCode, modifiers)) {
             cir.setReturnValue(true);
             cir.cancel();
@@ -141,16 +193,22 @@ public abstract class HandledScreenMixin {
         }
 
         ModConfig config = ModConfig.get();
-        if (!config.trashEnabled) return;
-
         HandledScreen<?> screen = getScreen();
 
-        // 检测 Backspace（撤销，不按 Shift）
-        boolean shiftDown = Screen.hasShiftDown();
-        if (!shiftDown && keyCode == GLFW.GLFW_KEY_BACKSPACE) {
-            ClientPlayNetworking.send(new TrashUndoPayload(screen.getScreenHandler().syncId));
-            cir.setReturnValue(true);
-            cir.cancel();
+        // Delete 键按下（设置状态）
+        if (keyCode == GLFW.GLFW_KEY_DELETE) {
+            deleteKeyDown = true;
+            return;
+        }
+
+        // Backspace 撤销（不按 Shift）
+        if (config.trashEnabled) {
+            boolean shiftDown = Screen.hasShiftDown();
+            if (!shiftDown && keyCode == GLFW.GLFW_KEY_BACKSPACE) {
+                ClientPlayNetworking.send(new TrashUndoPayload(screen.getScreenHandler().syncId));
+                cir.setReturnValue(true);
+                cir.cancel();
+            }
         }
     }
 }

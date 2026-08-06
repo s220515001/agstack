@@ -31,7 +31,7 @@ public class TrashDeleteHandler implements ServerPlayNetworking.PlayPayloadHandl
         ItemStack stack = slot.getStack();
         if (stack.isEmpty()) return;
 
-        // 创建记录，覆盖旧记录
+        // 创建记录，加入批次
         TrashRecord record = new TrashRecord(stack, handler.syncId, payload.slotIndex(), System.currentTimeMillis());
         TrashManager.addRecord(player.getUuid(), record);
 

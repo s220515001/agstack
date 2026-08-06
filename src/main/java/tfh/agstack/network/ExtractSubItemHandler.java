@@ -63,10 +63,11 @@ public class ExtractSubItemHandler implements ServerPlayNetworking.PlayPayloadHa
             }
 
             handler.setCursorStack(subItem);
+            // 发送光标更新包，使用 nextRevision()
             player.networkHandler.sendPacket(
                     new ScreenHandlerSlotUpdateS2CPacket(
                             handler.syncId,
-                            handler.getRevision(),
+                            handler.nextRevision(),
                             -1,
                             subItem
                     )
