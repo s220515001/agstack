@@ -1,21 +1,12 @@
 package tfh.agstack.util;
 
-import net.minecraft.item.ArmorItem;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.ToolItem;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.item.*;
 import tfh.agstack.config.ModConfig;
 
 public class AggregationHelper {
 
-    /**
-     * 判断两个物品是否可以聚合（堆叠）到一起。
-     * 逻辑：
-     * 1. 如果任一物品在黑名单中，返回 false。
-     * 2. 如果物品 ID 完全相同，返回 true（原版行为）。
-     * 3. 如果配置允许不同材质武器，且两者都是武器（ToolItem），返回 true。
-     * 4. 如果配置允许不同材质盔甲，且两者都是盔甲（ArmorItem）且槽位相同，返回 true。
-     * 5. 否则返回 false。
-     */
     public static boolean canAggregate(ItemStack a, ItemStack b) {
         if (a.isEmpty() || b.isEmpty()) return false;
         ModConfig config = ModConfig.get();
@@ -29,28 +20,36 @@ public class AggregationHelper {
             return true;
         }
 
-        // 盔甲不同材质（必须同槽位）
+        // 盔甲不同材质（含鞘翅，必须同槽位）
         if (config.allowArmorDifferentMaterial && isArmor(a) && isArmor(b)) {
-            ArmorItem armorA = (ArmorItem) a.getItem();
-            ArmorItem armorB = (ArmorItem) b.getItem();
-            return armorA.getSlotType() == armorB.getSlotType();
+            EquipmentSlot slotA = getArmorSlot(a);
+            EquipmentSlot slotB = getArmorSlot(b);
+            return slotA == slotB;
         }
 
         return false;
     }
 
-    /**
-     * 判断物品是否为武器（原版工具或剑）。
-     * 注：SwordItem 是 ToolItem 的子类，所以只需检查 ToolItem。
-     */
     public static boolean isWeapon(ItemStack stack) {
         return stack.getItem() instanceof ToolItem;
     }
 
-    /**
-     * 判断物品是否为盔甲。
-     */
     public static boolean isArmor(ItemStack stack) {
-        return stack.getItem() instanceof ArmorItem;
+        // 盔甲物品（ArmorItem）或鞘翅（ElytraItem）
+        return stack.getItem() instanceof ArmorItem || stack.getItem() instanceof ElytraItem;
+    }
+
+    /**
+     * 获取盔甲或鞘翅的装备槽位。
+     * 对于 ArmorItem，使用 getSlotType()；对于 ElytraItem，固定为 CHEST。
+     */
+    public static EquipmentSlot getArmorSlot(ItemStack stack) {
+        Item item = stack.getItem();
+        if (item instanceof ArmorItem armor) {
+            return armor.getSlotType();
+        } else if (item instanceof ElytraItem) {
+            return EquipmentSlot.CHEST;
+        }
+        return null;
     }
 }

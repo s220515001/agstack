@@ -14,6 +14,10 @@
   "agstack.config.creative_auto": "创造模式自动聚合",
   "agstack.config.allow_non_special_nbt_stacking": "允许普通物品堆叠",
   "agstack.config.allow_sub_item_stacking": "允许子物品堆叠（数量>1）",
+  "agstack.config.allow_weapon_diff": "允许不同材质的武器堆叠",
+  "agstack.config.allow_armor_diff": "允许不同材质的盔甲（含鞘翅）堆叠",
+  "agstack.config.trash_enabled": "启用垃圾桶（Delete+点击删除）",
+  "agstack.config.trash_retention": "撤销时间（秒）",
   "agstack.config.expand_behavior": "展开面板行为",
   "agstack.config.expand_behavior.hold": "按住按键时显示",
   "agstack.config.expand_behavior.toggle": "按键切换",
@@ -22,10 +26,11 @@
   "agstack.config.split_key_label": "拆分聚合槽按键",
   "agstack.config.config_key_label": "打开配置界面按键",
   "key.agstack.open_config": "打开聚合堆叠配置",
+  "key.agstack.armor_switch": "装备切换按键",
   "category.agstack": "聚合堆叠",
-  "key.agstack.expand_panel": "展开聚合槽面板",
   "agstack.config.blacklist": "黑名单管理",
   "agstack.blacklist.title": "选择禁止聚合的物品",
-  "key.agstack.armor_switch": "装备切换"
-
+  "agstack.blacklist.blacklisted": "已加入黑名单",
+  "agstack.blacklist.click_to_toggle": "点击切换状态",
+  "agstack.blacklist.search": "搜索..."
 }

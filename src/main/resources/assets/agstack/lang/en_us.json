@@ -14,6 +14,10 @@
   "agstack.config.creative_auto": "Auto Aggregate in Creative",
   "agstack.config.allow_non_special_nbt_stacking": "Allow Stackable Normal Items",
   "agstack.config.allow_sub_item_stacking": "Allow Sub-Item Stacking (Count>1)",
+  "agstack.config.allow_weapon_diff": "Allow different weapon materials to stack",
+  "agstack.config.allow_armor_diff": "Allow different armor materials (including elytra) to stack",
+  "agstack.config.trash_enabled": "Enable Trash Can (Delete+Click to delete)",
+  "agstack.config.trash_retention": "Undo Time (seconds)",
   "agstack.config.expand_behavior": "Expand Panel Behavior",
   "agstack.config.expand_behavior.hold": "Show on Key Hold",
   "agstack.config.expand_behavior.toggle": "Toggle on Key Press",
@@ -22,8 +26,11 @@
   "agstack.config.split_key_label": "Split Aggregated Stack Key",
   "agstack.config.config_key_label": "Open Config Screen Key",
   "key.agstack.open_config": "Open Aggregated Stack Config",
+  "key.agstack.armor_switch": "Armor Switch Key",
   "category.agstack": "Aggregated Stack",
   "agstack.config.blacklist": "Blacklist Manager",
   "agstack.blacklist.title": "Select Items to Exclude from Stacking",
-  "key.agstack.armor_switch": "Armor Switch"
+  "agstack.blacklist.blacklisted": "Blacklisted",
+  "agstack.blacklist.click_to_toggle": "Click to toggle",
+  "agstack.blacklist.search": "Search..."
 }
